@@ -1,0 +1,69 @@
+"""
+Motor de reconocimiento de placas en Windows.
+
+TODO: correr TODO en Windows, sin Raspberry Pi:
+    - OpenCvRecognizer   -> OpenCV local en Windows (detector ligero, sin daemon).
+    - AlprRecognizer     -> OpenALPR nativo con el DAEMON LOCAL 'alprd' (modelo-3,
+                            sin internet, sin tarjeta de prueba). Modo recomendado
+                            para Windows.
+    - AlprCloudRecognker -> (fallback opcional) llama a la API CLOUD solo si tienes
+                            ALPR_API_KEY. NO es el modo default.
+
+El ESP32-CAM solo CAPTURA y envia las capturas; TODO el reconocimiento y registro
+se hace EN Windows por estos backends.
+"""
+
+import io
+import logging
+from abc import ABC, abstractmethod
+
+import config
+
+log = logging.getLogger("recognizer")
+
+
+# ---------------------------------------------------------------------------
+# Helpers de carga de frame
+# ---------------------------------------------------------------------------
+def _load_frame(image_bytes_or_path):
+    """Carga un frame desde bytes (MJPEG) o desde un archivo de disco."""
+    import cv2
+
+    if isinstance(image_bytes_or_path, (bytes, bytearray)):
+        cap = cv2.VideoCapture(image_bytes_or_path.tobytes())
+        frame = None
+        while True:
+            ok, img = cap.read()
+            if not ok or img is None:
+                break
+            frame = img
+        cap.release()
+        return frame if frame is not None else None
+
+    img = cv2.imread(str(image_bytes_or_path))
+    return img if img is not None else None
+
+
+class RegionNotFound(Exception):
+    pass
+
+
+def _roi(region):
+    """
+    Devuelve el (y0, y1, x0, x1) a convertir a la region de la imagen.
+    Valores por defecto (OpenALPR usa una region de arriba-izquierda x abajo-derecha).
+    """
+    h, w = config.ROI_DIMENSIONS  # altura y anchura de la imagen de entrada
+    if region is None:
+        return (int(h * 0.2), int(h * 0.8), int(w * 0.4), int(w * 0.6))
+    if not region or region.endswith("="):
+        return (int(h * 0.2), int(h * 0.8), int(w * 0.4), int(w * 0.6))
+    # OpenALPR: region es (Y, H, X, W) como cadenas de % o pixeles.
+    try:
+        y0 = int(round(h * float(region.split()[0])))
+        y1 = int(round(h * float(region.split()[1])))
+        x0 = int(round(w * float(region.split()[2])))
+        x1 = int(round(w * float(region.split()[3])))
+    except (ValueError, IndexError):
+        return (int(h * 0.2), int(h * 0.8), int(w * 0.4), int(w * 0.6))
+    return (y0, y1, x0, x1)
