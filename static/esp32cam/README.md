@@ -1,10 +1,29 @@
 # AI Thinker ESP32-CAM: compilación y flasheo
 
-El archivo `esp32cam.ino` inicializa el sensor OV2640 y publica:
+El archivo `esp32cam.ino` detecta automáticamente los sensores **OV2640 y OV3660**
+y publica:
 
 - `http://<IP>/capture`: una captura JPEG.
 - `http://<IP>:81/stream`: video MJPEG.
 - `http://<IP>/`: página de estado.
+
+### Uso con OV3660
+
+No hay que cambiar los pines si el OV3660 está instalado en el mismo módulo AI
+Thinker: comparte la conexión del flex y el driver lo identifica mediante SCCB.
+Al iniciar, el Monitor Serie mostrará `Camara OV3660 detectada`.
+
+El firmware comienza en `FRAMESIZE_VGA` (640 × 480) para que el MJPEG sea fluido.
+Para aprovechar la mayor resolución del OV3660, cambia `CAMERA_FRAME_SIZE` a
+`FRAMESIZE_SVGA` (800 × 600) o `FRAMESIZE_UXGA` (1600 × 1200). Para UXGA se
+recomienda PSRAM; una resolución mayor aumenta el consumo de memoria, el ancho de
+banda y el tiempo entre cuadros. Empieza probando `/capture` antes de `/stream`.
+El OV3660 admite hasta QXGA, pero no se recomienda para video continuo en esta
+aplicación.
+
+Si usas una placa ESP32-CAM distinta de AI Thinker, sí debes sustituir la tabla de
+pines por la del fabricante. Seleccionar otro modelo de sensor en Arduino no es
+necesario: solo se selecciona la placa.
 
 ## 1. Preparar Arduino IDE
 
@@ -107,7 +126,9 @@ router. No uses una IP que el router ya haya asignado a otro equipo.
 ### Errores frecuentes al iniciar
 
 - `E ... camera probe failed` / error `0x105`: revisa el flex y su orientación,
-  y confirma que la placa seleccionada sea **AI Thinker ESP32-CAM**.
+  confirma que la placa seleccionada sea **AI Thinker ESP32-CAM** y actualiza el
+  paquete `esp32 by Espressif Systems` si está muy desactualizado. Este error
+  indica que no se detectó el sensor; todavía no distingue entre OV2640 y OV3660.
 - Brownout detector / reinicios: mejora la alimentación de 5 V y el cableado.
 - Se agota el tiempo WiFi: verifica credenciales y usa una red de 2.4 GHz.
 - La imagen no abre: quita `IO0`-`GND`, pulsa RESET y consulta el Monitor Serie.
