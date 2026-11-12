@@ -1,5 +1,5 @@
 /*
- * Firmware para AI Thinker ESP32-CAM (OV2640).
+ * Firmware para AI Thinker ESP32-CAM con sensor OV2640 u OV3660.
  *
  * Endpoints:
  *   http://<IP>/          Estado del dispositivo
@@ -31,6 +31,11 @@ const IPAddress DNS(8, 8, 8, 8);
 const uint32_t WIFI_TIMEOUT_MS = 30000;
 const uint16_t HTTP_PORT = 80;
 const uint16_t STREAM_PORT = 81;
+
+// VGA es el punto de partida recomendado para un stream fluido con ambos sensores.
+// Con OV3660 y PSRAM tambien puedes probar FRAMESIZE_UXGA (1600 x 1200).
+const framesize_t CAMERA_FRAME_SIZE = FRAMESIZE_VGA;
+const int CAMERA_JPEG_QUALITY = 12;  // Menor numero = mejor calidad y mas datos.
 
 // Pines de la camara en la placa AI Thinker ESP32-CAM.
 #define PWDN_GPIO_NUM 32
@@ -75,8 +80,8 @@ bool initCamera() {
     config.pin_reset = RESET_GPIO_NUM;
     config.xclk_freq_hz = 20000000;
     config.pixel_format = PIXFORMAT_JPEG;
-    config.frame_size = FRAMESIZE_VGA;  // 640 x 480
-    config.jpeg_quality = 12;           // Menor numero = mejor calidad.
+    config.frame_size = CAMERA_FRAME_SIZE;
+    config.jpeg_quality = CAMERA_JPEG_QUALITY;
     config.fb_count = 1;
     config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
     config.fb_location = CAMERA_FB_IN_DRAM;
@@ -100,13 +105,22 @@ bool initCamera() {
         return false;
     }
 
-    // Ajusta estas orientaciones si la imagen aparece invertida.
+    const char *cameraModel = "desconocido";
+    if (sensor->pid == OV2640_PID) {
+        cameraModel = "OV2640";
+    } else if (sensor->pid == OV3660_PID) {
+        cameraModel = "OV3660";
+    }
+
+    // Estos ajustes estan disponibles tanto para OV2640 como para OV3660.
+    // Cambia la orientacion si la imagen aparece invertida.
     sensor->set_vflip(sensor, 0);
     sensor->set_hmirror(sensor, 0);
     sensor->set_brightness(sensor, 1);
     sensor->set_saturation(sensor, -1);
 
-    Serial.printf("Camara lista. PSRAM: %s\n", psramFound() ? "si" : "no");
+    Serial.printf("Camara %s detectada. PSRAM: %s\n",
+                  cameraModel, psramFound() ? "si" : "no");
     return true;
 }
 
@@ -278,7 +292,7 @@ void setup() {
     Serial.println("\nIniciando ESP32-CAM...");
 
     if (!initCamera()) {
-        Serial.println("Revisa el flex OV2640 y pulsa RESET para reintentar");
+        Serial.println("Revisa el flex de la camara y pulsa RESET para reintentar");
         return;
     }
 
