@@ -1,102 +1,116 @@
-"""
-Configuración central del sistema de parking.
+"""Configuracion central del sistema de estacionamiento.
 
-TODO: correr TODO en Windows (sin Raspberry Pi). Los dos motores de reconocimiento
-disponibles son:
-  - "windows-local":  usa el DAEMON nativo de OpenALPR (servidor local "alprd") +
-                      OpenCV local. NO requiere internet ni tarjeta de prueba.
-  - "openalpr-api":   llama a la API CLOUD de OpenALPR (requiere cuenta de prueba).
-  - "opencv":         detector local ligero de OpenCV (sin OpenALPR, pero sin
-                      daemon). Útil si solo quieres la demo del flujo.
+Todos los secretos y parametros de despliegue se pueden definir mediante
+variables de entorno. Los valores predeterminados permiten ejecutar una demo
+local sin credenciales ni servicios externos.
 """
 
 import os
 
-
-# ---------------------------------------------------------------------------
-# Cobro por el tiempo de estacionamiento
-# ---------------------------------------------------------------------------
-GRACE_MINUTES = 120                                          # 2 horas gratis
-RATE_PER_INTERVAL_MINUTES = 200                              # $2 USD por cada 200 min tras las 2h
-ALERT_INTERVAL_MINUTES = 120                                 # cada 2 h -> alerta de "debe pagar"
-LOW_PRIORITY_TTL_MINUTES = 240                               # ventana de silencio antes de re-alertar
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
-# ---------------------------------------------------------------------------
-# Zonas de estacionamiento vistas por la cámara / el daemon OpenALPR
-# ---------------------------------------------------------------------------
-ZONES = ["P1", "P2", "P3"]
-MONITOR_AREA = "P1"
+def _int_env(name, default):
+    return int(os.getenv(name, str(default)))
+
+
+def _float_env(name, default):
+    return float(os.getenv(name, str(default)))
 
 
 # ---------------------------------------------------------------------------
-# Base de datos SQLite (persistencia; se guarda EN EL DISCO DE WINDOWS)
+# Cobro en pesos mexicanos
 # ---------------------------------------------------------------------------
-DB_PATH = os.getenv("PARKING_DB", os.path.join("data", "parking.db"))
+CURRENCY_CODE = "MXN"
+CURRENCY_SYMBOL = "$"
+GRACE_MINUTES = _int_env("GRACE_MINUTES", 120)
+RATE_PER_INTERVAL_MINUTES = _int_env("RATE_PER_INTERVAL_MINUTES", 200)
+RATE_PER_INTERVAL_MXN = _float_env("PARKING_RATE_MXN", 2.00)
+ALERT_INTERVAL_MINUTES = _int_env("ALERT_INTERVAL_MINUTES", 120)
+LOW_PRIORITY_TTL_MINUTES = _int_env("LOW_PRIORITY_TTL_MINUTES", 240)
+
+
+def format_mxn(amount):
+    """Devuelve un importe explicito en pesos mexicanos."""
+    return f"{CURRENCY_SYMBOL}{amount:,.2f} {CURRENCY_CODE}"
 
 
 # ---------------------------------------------------------------------------
-# Streaming de la ESP32-CAM en Windows
+# Zonas y persistencia
 # ---------------------------------------------------------------------------
-# La ESP32 solo CAPTURA lo que ve y envía un stream por la red. El daemon OpenALPR
-# (o OpenCV local, aquí mismo) es quien lee esas capturas y registra las placas.
+ZONES = [
+    zone.strip()
+    for zone in os.getenv("PARKING_ZONES", "P1,P2,P3").split(",")
+    if zone.strip()
+]
+MONITOR_AREA = os.getenv("PARKING_MONITOR_AREA", ZONES[0])
+DB_PATH = os.getenv("PARKING_DB", os.path.join(BASE_DIR, "data", "parking.db"))
+VEHICLE_EXIT_TIMEOUT_SECONDS = _int_env("VEHICLE_EXIT_TIMEOUT_SECONDS", 300)
+
+
+# ---------------------------------------------------------------------------
+# Camara ESP32-CAM
+# ---------------------------------------------------------------------------
 ESP32_CAM_STREAM = os.getenv("ESP32_CAM_IP_STREAM", "http://192.168.1.64:81/stream")
-CAM_FOLDER = "static"
-CAM_STREAM_FILE = "monitor.mjpg"
+CAM_FOLDER = os.path.join(BASE_DIR, "static")
+CAM_STREAM_FILE = "monitor.jpg"
+CAMERA_RECONNECT_SECONDS = _float_env("CAMERA_RECONNECT_SECONDS", 5)
+CAMERA_HTTP_TIMEOUT_SECONDS = _float_env("CAMERA_HTTP_TIMEOUT_SECONDS", 10)
+CAMERA_MAX_FRAME_BYTES = _int_env("CAMERA_MAX_FRAME_BYTES", 10_000_000)
+RECOGNITION_INTERVAL_SECONDS = _float_env("RECOGNITION_INTERVAL_SECONDS", 2)
 
 
 # ---------------------------------------------------------------------------
-# Alertas: Telegram / WhatsApp / Discord (en Windows)
+# Reconocimiento de placas
 # ---------------------------------------------------------------------------
+# demo          -> placa configurable, para probar el flujo sin ALPR.
+# opencv        -> OpenCV + Tesseract OCR instalado en el equipo.
+# openalpr      -> API OpenALPR Cloud; requiere ALPR_API_KEY.
+# windows-local -> servicio HTTP local compatible con la respuesta OpenALPR.
+RECOGNITION_BACKEND = os.getenv("RECOGNITION_BACKEND", "demo").lower()
+DEMO_PLATE = os.getenv("DEMO_PLATE", "ABC123")
+TESSERACT_CMD = os.getenv("TESSERACT_CMD", "")
+
+ALPR_API_KEY = os.getenv("ALPR_API_KEY", "")
+ALPR_CLOUD_URL = os.getenv(
+    "ALPR_CLOUD_URL", "https://api.openalpr.com/v2/recognize_bytes"
+)
+ALPR_DAEMON_URL = os.getenv("ALPR_DAEMON_URL", "http://127.0.0.1:8000/data/detect")
+ALPR_DEFAULT_REGION = os.getenv("ALPR_DEFAULT_REGION", "mx")
+ALPR_REQUEST_TIMEOUT = _float_env("ALPR_REQUEST_TIMEOUT", 20)
+
+
+# ---------------------------------------------------------------------------
+# Alertas
+# ---------------------------------------------------------------------------
+SEND_FOR_REAL = os.getenv("SEND_FOR_REAL", "false").lower() == "true"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_IDS = os.getenv("TELEGRAM_CHAT_IDS", "")
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN", "")
+WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
 WHATSAPP_DESTINATIONS = os.getenv("WHATSAPP_DESTINATIONS", "")
+WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v22.0")
 DISCORD_WEBHOOKS = os.getenv("DISCORD_WEBHOOKS", "")
 
-send_real = os.getenv("SEND_FOR_REAL", "false").lower() == "true"
 
-
-# ---------------------------------------------------------------------------
-# Motor de reconocimiento (Windows)
-# ---------------------------------------------------------------------------
-RECOGNITION_BACKEND = os.getenv("RECOGNITION_BACKEND", "windows-local")
-
-# --- OpenALPR: comunicarse con el DAEMON (alprd) que corre EN WINDOWS ---
-# NO es la API CLOUD. El daemon "alprd" ejecuta el modelo offline (modelo-3)
-# y responde por HTTP local sin internet.
-ALPR_DAEMON_URL = os.getenv("ALPR_DAEMON_URL", "http://127.0.0.1:8000/data/detect")  # daemon alprd en Windows
-ALPR_DEFAULT_REGIONS = os.getenv("ALPR_DEFAULT_REGIONS", "us,eu").split(",")            # regiones del DAEMON
-
-# --- Cliente HTTP para el daemon (opcional; se usa por defecto) ---
-ALPR_CLIENT_TIMEOUT = 20
-ALPR_REQUEST_TIMEOUT = 15
-
-# --- Switch de envió vs consola ---
-SEND_FOR_REAL = send_real
-
-
-# ---------------------------------------------------------------------------
-# Helpers de lectura de parametros (usados por Alerts); deben devolver listas
-# sin elementos vacios.
-# ---------------------------------------------------------------------------
 def _split(text):
-    """Devuelve una lista sin elementos vacios de `text` (separa por virgulas)."""
-    if not text:
-        return []
-    return [p.strip() for p in text.split(",") if p.strip()]
+    return [part.strip() for part in text.split(",") if part.strip()]
 
 
 def telegram_chat_ids():
-    """Devuelve la lista de IDs de chat de Telegram (sin vacios)."""
     return _split(TELEGRAM_CHAT_IDS)
 
 
 def whatsapp_destinations():
-    """Devuelve la lista de destinatarios de WhatsApp (sin vacios)."""
     return _split(WHATSAPP_DESTINATIONS)
 
 
 def discord_webhooks():
-    """Devuelve la lista de Webhooks JSON de Discord (sin vacios)."""
-    return [x.strip() for x in DISCORD_WEBHOOKS.splitlines() if x.strip()]
+    return [url.strip() for url in DISCORD_WEBHOOKS.splitlines() if url.strip()]
+
+
+# ---------------------------------------------------------------------------
+# Servidor HTTP
+# ---------------------------------------------------------------------------
+HOST = os.getenv("PARKING_HOST", "0.0.0.0")
+PORT = _int_env("PORT", 5000)

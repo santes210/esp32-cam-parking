@@ -1,14 +1,9 @@
-# backends (reconocimiento de placas)
-opencv-python>=4.8.0
+# Captura y reconocimiento local
+opencv-python-headless>=4.8.0
 numpy>=1.24
-requests>=2.31
+pytesseract>=0.3.10
 
-# app web (Flask)
+# API web y clientes HTTP
 flask>=3.0.0
-
-# alertas
-python-telegram-bot>=20.7
 httpx>=0.27.0
-
-# dep para correr OpenALPR en el Raspberry Pi (NO se instala en Windows ni es necesario ahora)
-# openalpr-python>=1.0.12
+requests>=2.31
