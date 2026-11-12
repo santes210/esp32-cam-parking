@@ -7,7 +7,7 @@ backend potente (Windows en la demo, Raspberry Pi para producción), calcula
 
 | Componente | Responsabilidad | Qué corre |
 | --- | --- | --- |
-| ESP32-CAM | Captura la imagen de la matrícula y la transmite por la red | Solo captura y stream MJPEG (`static/esp32cam.ino`) |
+| ESP32-CAM | Captura la imagen de la matrícula y la transmite por la red | Solo captura y stream MJPEG (`static/esp32cam/esp32cam.ino`) |
 | Backend Windows / Raspberry Pi | Reconoce la matrícula, calcula el costo y envía alertas | `config.py`, `core/*.py`, `app.py` |
 | SQLite | Estado del sistema (registro de cada vehículo por placa/`zona`) | `db_schema.sql`, `core/tracking.py` |
 
@@ -16,8 +16,10 @@ backend potente (Windows en la demo, Raspberry Pi para producción), calcula
 ### Windows (modo de demostración)
 - Python 3.10+ (64 bits)
 - `pip install -r requirements.txt` (incluye **OpenCV**)
-- Un ESP32-CAM con firmware que emita el stream MJPEG (`static/esp32cam.ino`)
+- Un ESP32-CAM con firmware que emita el stream MJPEG (`static/esp32cam/esp32cam.ino`)
 - El firmware debe estar en `http://<IP>:81/stream` de la red local.
+- La [guía de compilación y flasheo](esp32cam/README.md) incluye el cableado
+  USB-UART y la solución para `Failed to connect to ESP32`.
 
 ### Raspberry Pi (producción recomendada)
 - Raspberry Pi + `picamera` (OpenALPR requiere `torch` y un modelo de 3 GB RAM).
@@ -28,7 +30,7 @@ backend potente (Windows en la demo, Raspberry Pi para producción), calcula
 ```
 agent/
 ├── config.py               # Umbrales de cobro, zonas y parámetros (2h gratis, cadencia, envios, alertas)
-├── static/esp32cam.ino      # Firmware de referencia de la ESP32-CAM (stream MJPEG)
+├── static/esp32cam/         # Firmware MJPEG y guía de compilación/flasheo
 ├── core/
 │   ├── recognicer.py        # Reconocimiento: OpenCV (Windows) vs OpenALPR (Pi)
 │   ├── tracking.py          # Persistencia de records y tracking de tiempo/costo
