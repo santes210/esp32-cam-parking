@@ -37,17 +37,24 @@ class DemoRecognizer:
 
 
 class OpenCVRecognizer:
-    """Detector local sencillo basado en contornos y OCR con Tesseract.
-
-    Es una alternativa ligera para pruebas. La calidad depende de la iluminacion,
-    el angulo y la resolucion; para produccion se recomienda un modelo ALPR.
-    """
+    """Reconocimiento local de placas mediante OpenCV y Tesseract OCR."""
 
     def __init__(self):
+        import os
+
         import pytesseract
 
-        if config.TESSERACT_CMD:
-            pytesseract.pytesseract.tesseract_cmd = config.TESSERACT_CMD
+        tesseract_cmd = config.TESSERACT_CMD
+        if not tesseract_cmd and os.name == "nt":
+            for candidate in (
+                r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+            ):
+                if os.path.exists(candidate):
+                    tesseract_cmd = candidate
+                    break
+        if tesseract_cmd:
+            pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
         self._pytesseract = pytesseract
 
     @staticmethod
@@ -55,9 +62,11 @@ class OpenCVRecognizer:
         import cv2
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray = cv2.bilateralFilter(gray, 11, 17, 17)
-        edges = cv2.Canny(gray, 30, 200)
-        contours, _ = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        filtered = cv2.bilateralFilter(gray, 11, 17, 17)
+        edges = cv2.Canny(filtered, 30, 200)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 3))
+        closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
+        contours, _ = cv2.findContours(closed, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
         height, width = gray.shape
         candidates = []
@@ -71,7 +80,7 @@ class OpenCVRecognizer:
                 continue
             aspect_ratio = region_width / float(region_height)
             area_ratio = (region_width * region_height) / float(height * width)
-            if not 2.0 <= aspect_ratio <= 6.5 or not 0.001 <= area_ratio <= 0.5:
+            if not 1.8 <= aspect_ratio <= 6.5 or not 0.001 <= area_ratio <= 0.5:
                 continue
             candidates.append(
                 (
@@ -83,9 +92,72 @@ class OpenCVRecognizer:
         return [
             region
             for _, region in sorted(candidates, key=lambda item: item[0], reverse=True)[
-                :5
+                :8
             ]
         ]
+
+    @staticmethod
+    def _plates_in_text(text):
+        """Extrae placas mexicanas posibles, incluso con guiones o espacios."""
+        ignored_words = {"PLACA", "PLACAS", "MEXICO", "MEX", "ESTADO", "CDMX"}
+        words = [
+            word
+            for word in re.findall(r"[A-Z0-9]+", text.upper())
+            if word not in ignored_words
+        ]
+        combinations = set()
+        for size in (1, 2, 3):
+            for index in range(len(words) - size + 1):
+                combinations.add("".join(words[index : index + size]))
+
+        plates = []
+        for combination in combinations:
+            plate = normalize_plate(combination)
+            if (
+                plate
+                and any(char.isalpha() for char in plate)
+                and any(char.isdigit() for char in plate)
+            ):
+                plates.append(plate)
+        return plates
+
+    def _ocr_candidates(self, image, page_segmentation_mode):
+        """Agrupa palabras OCR por linea y conserva su confianza."""
+        output = self._pytesseract.Output.DICT
+        data = self._pytesseract.image_to_data(
+            image,
+            config=(
+                f"--psm {page_segmentation_mode} -c "
+                "tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-"
+            ),
+            output_type=output,
+        )
+
+        lines = {}
+        for index, raw_text in enumerate(data["text"]):
+            text = raw_text.strip()
+            try:
+                confidence = float(data["conf"][index])
+            except (TypeError, ValueError):
+                continue
+            if not text or confidence < 0:
+                continue
+            key = (
+                data["block_num"][index],
+                data["par_num"][index],
+                data["line_num"][index],
+            )
+            lines.setdefault(key, []).append((text, confidence))
+
+        candidates = []
+        for words in lines.values():
+            text = " ".join(word for word, _ in words)
+            confidence = sum(value for _, value in words) / (100.0 * len(words))
+            if confidence < config.OCR_MIN_CONFIDENCE:
+                continue
+            for plate in self._plates_in_text(text):
+                candidates.append(Recognition(plate=plate, confidence=confidence))
+        return candidates
 
     def recognize(self, frame):
         if frame is None:
@@ -94,6 +166,7 @@ class OpenCVRecognizer:
         import cv2
 
         try:
+            candidates = []
             for region in self._plate_regions(frame):
                 enlarged = cv2.resize(
                     region, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC
@@ -101,23 +174,20 @@ class OpenCVRecognizer:
                 _, threshold = cv2.threshold(
                     enlarged, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
                 )
-                text = self._pytesseract.image_to_string(
-                    threshold,
-                    config=(
-                        "--psm 7 -c "
-                        "tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-                    ),
-                )
-                plate = normalize_plate(text)
-                if plate:
-                    # Tesseract en image_to_string no expone una confianza fiable.
-                    return Recognition(plate=plate, confidence=0.5)
+                for processed in (enlarged, threshold):
+                    candidates.extend(self._ocr_candidates(processed, 7))
+
+            # Si el contorno no fue detectado, intenta texto disperso en la imagen.
+            if not candidates:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                candidates.extend(self._ocr_candidates(gray, 11))
         except self._pytesseract.TesseractNotFoundError as exc:
             raise RuntimeError(
                 "Tesseract OCR no esta instalado. Instalalo o define TESSERACT_CMD "
                 "con la ruta de tesseract.exe."
             ) from exc
-        return None
+
+        return max(candidates, key=lambda item: item.confidence) if candidates else None
 
 
 class OpenALPRRecognizer:

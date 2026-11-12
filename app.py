@@ -1,14 +1,13 @@
 """Aplicacion Flask: captura ESP32-CAM, ALPR, seguimiento, cobros y alertas."""
 
 import logging
-import os
 import threading
 import time
 import urllib.request
 
 import cv2
 import numpy as np
-from flask import Flask, jsonify, send_file
+from flask import Flask, Response, jsonify, render_template
 
 import config
 from core import alerts, recognizer, tracking
@@ -17,6 +16,9 @@ log = logging.getLogger("parking")
 
 _cam_thread = None
 _cam_last_frame_at = 0.0
+_frame_lock = threading.Lock()
+_latest_frame = None
+_latest_jpeg = None
 _recognizer = recognizer.build_recognizer()
 _alerts = alerts.Alerts()
 app = Flask(__name__)
@@ -26,19 +28,26 @@ app = Flask(__name__)
 # Captura de camara
 # ---------------------------------------------------------------------------
 def _save_frame(frame):
-    """Guarda un JPEG completo y lo reemplaza atomicamente para Flask/OCR."""
-    global _cam_last_frame_at
-    os.makedirs(config.CAM_FOLDER, exist_ok=True)
-    path = get_cam_stream()
-    temporary_path = path + ".tmp"
-
+    """Comparte el ultimo frame en memoria sin bloqueos de archivos en Windows."""
+    global _cam_last_frame_at, _latest_frame, _latest_jpeg
     ok, encoded = cv2.imencode(".jpg", frame)
     if not ok:
         raise RuntimeError("No se pudo codificar el frame de la camara")
-    with open(temporary_path, "wb") as output:
-        output.write(encoded.tobytes())
-    os.replace(temporary_path, path)
-    _cam_last_frame_at = time.time()
+
+    with _frame_lock:
+        _latest_frame = frame.copy()
+        _latest_jpeg = encoded.tobytes()
+        _cam_last_frame_at = time.time()
+
+
+def _get_latest_frame():
+    with _frame_lock:
+        return None if _latest_frame is None else _latest_frame.copy()
+
+
+def _get_latest_jpeg():
+    with _frame_lock:
+        return _latest_jpeg
 
 
 def _read_exact(response, length):
@@ -139,22 +148,13 @@ def start_cam():
     _cam_thread.start()
 
 
-def get_cam_stream():
-    return os.path.join(config.CAM_FOLDER, config.CAM_STREAM_FILE)
-
-
 # ---------------------------------------------------------------------------
 # Reconocimiento y cobro
 # ---------------------------------------------------------------------------
 def recognize_frame():
-    """Reconoce el ultimo JPEG y registra una entrada o una nueva observacion."""
-    cam_file = get_cam_stream()
-    if not os.path.exists(cam_file):
-        return None
-
-    frame = cv2.imread(cam_file)
+    """Reconoce el ultimo frame recibido por la camara."""
+    frame = _get_latest_frame()
     if frame is None:
-        log.warning("El ultimo frame todavia no se puede decodificar")
         return None
 
     result = _recognizer.recognize(frame)
@@ -206,14 +206,28 @@ def start_workers():
 
 
 # ---------------------------------------------------------------------------
-# API HTTP
+# Panel local y API HTTP
 # ---------------------------------------------------------------------------
+@app.route("/")
+def dashboard():
+    return render_template("index.html", monitor_area=config.MONITOR_AREA)
+
+
+@app.route("/favicon.ico")
+def favicon():
+    return app.send_static_file("favicon.svg")
+
+
 @app.route("/live")
 def live_cam():
-    path = get_cam_stream()
-    if not os.path.exists(path):
+    jpeg = _get_latest_jpeg()
+    if jpeg is None:
         return jsonify({"error": "Sin frame disponible"}), 503
-    return send_file(path, mimetype="image/jpeg")
+    return Response(
+        jpeg,
+        mimetype="image/jpeg",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.route("/api/plates")
