@@ -4,9 +4,9 @@ Proyecto Flask que recibe el video MJPEG de una ESP32-CAM, reconoce placas,
 registra el tiempo de estacionamiento en SQLite y genera alertas con el importe
 en **pesos mexicanos (MXN)**.
 
-> El backend `demo` permite comprobar el flujo completo con una placa ficticia.
-> Para leer placas reales debes configurar OpenCV + Tesseract u OpenALPR; ningun
-> detector sencillo garantiza precision en todas las condiciones de iluminacion.
+> El backend predeterminado es `opencv`: lee las placas de los frames recibidos
+> por la ESP32-CAM mediante OpenCV + Tesseract OCR. Requiere Tesseract instalado
+> en Windows. La precision depende de la iluminacion, el angulo y el enfoque.
 
 ## Componentes
 
@@ -28,6 +28,10 @@ py -3 -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
+Instala tambien [Tesseract OCR para Windows](https://github.com/UB-Mannheim/tesseract/wiki)
+en su ruta predeterminada (`C:\Program Files\Tesseract-OCR\tesseract.exe`). El paquete pip `pytesseract`
+es solamente el conector; no incluye el programa OCR.
+
 Configura la URL real que muestra el Monitor Serie de la ESP32-CAM:
 
 ```powershell
@@ -35,9 +39,9 @@ $env:ESP32_CAM_IP_STREAM = "http://192.168.1.64:81/stream"
 python app.py
 ```
 
-El servidor queda en `http://127.0.0.1:5000`. Los datos se crean en
-`data/parking.db` y el ultimo frame en `static/monitor.jpg`; no hace falta crear
-esas carpetas manualmente.
+El panel local queda en `http://127.0.0.1:5000`. Los datos se crean en
+`data/parking.db` y el ultimo frame se comparte en memoria, sin archivos temporales
+ni bloqueos de `monitor.jpg` en Windows.
 
 Para compilar la camara sigue la [guia de ESP32-CAM](static/esp32cam/README.md).
 
@@ -71,22 +75,10 @@ minutos generan $2.00 MXN y 321 minutos generan $4.00 MXN.
 
 Selecciona un backend con `RECOGNITION_BACKEND`.
 
-### 1. Demo (predeterminado)
+### 1. OpenCV + Tesseract OCR (predeterminado)
 
-Usa una placa fija para comprobar base de datos, API y alertas:
-
-```powershell
-$env:RECOGNITION_BACKEND = "demo"
-$env:DEMO_PLATE = "ABC123"
-python app.py
-```
-
-La demo tambien necesita recibir frames de la camara; no reconoce caracteres.
-
-### 2. OpenCV + Tesseract OCR
-
-Instala **Tesseract OCR** en Windows y configura la ruta del ejecutable si no esta
-en `PATH`:
+Instala **Tesseract OCR** en Windows. La ruta predeterminada se detecta
+automaticamente; si lo instalaste en otra carpeta, configura el ejecutable:
 
 ```powershell
 $env:RECOGNITION_BACKEND = "opencv"
@@ -94,10 +86,11 @@ $env:TESSERACT_CMD = "C:\Program Files\Tesseract-OCR\tesseract.exe"
 python app.py
 ```
 
-Este detector busca regiones rectangulares y aplica OCR. Es adecuado para
-pruebas controladas; ajusta distancia, enfoque e iluminacion para mejorar.
+El detector localiza posibles placas, mejora su contraste y ejecuta OCR por
+lineas con una confianza minima. Ajusta distancia, enfoque e iluminacion para
+mejorar la lectura. `OCR_MIN_CONFIDENCE` tiene un valor inicial de `0.35`.
 
-### 3. OpenALPR Cloud
+### 2. OpenALPR Cloud
 
 ```powershell
 $env:RECOGNITION_BACKEND = "openalpr"
@@ -106,7 +99,7 @@ $env:ALPR_DEFAULT_REGION = "mx"
 python app.py
 ```
 
-### 4. Servicio OpenALPR local
+### 3. Servicio OpenALPR local
 
 Para un servicio HTTP que acepte un archivo multipart `image` y devuelva JSON con
 `results[].plate` y `results[].confidence`:
@@ -115,6 +108,16 @@ Para un servicio HTTP que acepte un archivo multipart `image` y devuelva JSON co
 $env:RECOGNITION_BACKEND = "windows-local"
 $env:ALPR_DAEMON_URL = "http://127.0.0.1:8000/data/detect"
 python app.py
+```
+
+### Modo demo opcional
+
+Solo para pruebas automatizadas o para comprobar cobros sin OCR, puedes seleccionar
+una placa ficticia explícitamente:
+
+```powershell
+$env:RECOGNITION_BACKEND = "demo"
+$env:DEMO_PLATE = "ABC123"
 ```
 
 ## Alertas opcionales
@@ -129,8 +132,9 @@ Para enviarlos, define `SEND_FOR_REAL=true` y las variables de uno de estos cana
 
 No guardes tokens reales en el codigo ni los subas a GitHub.
 
-## API
+## Panel local y API
 
+- `GET /`: panel local con iconos, video, estado, vehiculos e importes MXN.
 - `GET /health`: estado, backend y antiguedad del ultimo frame.
 - `GET /live`: ultimo frame JPEG.
 - `GET /api/plates`: vehiculos, minutos e importe `cost_mxn`.

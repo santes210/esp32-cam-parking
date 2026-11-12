@@ -52,8 +52,6 @@ VEHICLE_EXIT_TIMEOUT_SECONDS = _int_env("VEHICLE_EXIT_TIMEOUT_SECONDS", 300)
 # Camara ESP32-CAM
 # ---------------------------------------------------------------------------
 ESP32_CAM_STREAM = os.getenv("ESP32_CAM_IP_STREAM", "http://192.168.1.64:81/stream")
-CAM_FOLDER = os.path.join(BASE_DIR, "static")
-CAM_STREAM_FILE = "monitor.jpg"
 CAMERA_RECONNECT_SECONDS = _float_env("CAMERA_RECONNECT_SECONDS", 5)
 CAMERA_HTTP_TIMEOUT_SECONDS = _float_env("CAMERA_HTTP_TIMEOUT_SECONDS", 10)
 CAMERA_MAX_FRAME_BYTES = _int_env("CAMERA_MAX_FRAME_BYTES", 10_000_000)
@@ -63,13 +61,14 @@ RECOGNITION_INTERVAL_SECONDS = _float_env("RECOGNITION_INTERVAL_SECONDS", 2)
 # ---------------------------------------------------------------------------
 # Reconocimiento de placas
 # ---------------------------------------------------------------------------
-# demo          -> placa configurable, para probar el flujo sin ALPR.
-# opencv        -> OpenCV + Tesseract OCR instalado en el equipo.
+# opencv        -> reconocimiento real con OpenCV + Tesseract (predeterminado).
 # openalpr      -> API OpenALPR Cloud; requiere ALPR_API_KEY.
 # windows-local -> servicio HTTP local compatible con la respuesta OpenALPR.
-RECOGNITION_BACKEND = os.getenv("RECOGNITION_BACKEND", "demo").lower()
+# demo          -> placa ficticia, solo para las pruebas automatizadas.
+RECOGNITION_BACKEND = os.getenv("RECOGNITION_BACKEND", "opencv").lower()
 DEMO_PLATE = os.getenv("DEMO_PLATE", "ABC123")
 TESSERACT_CMD = os.getenv("TESSERACT_CMD", "")
+OCR_MIN_CONFIDENCE = _float_env("OCR_MIN_CONFIDENCE", 0.35)
 
 ALPR_API_KEY = os.getenv("ALPR_API_KEY", "")
 ALPR_CLOUD_URL = os.getenv(

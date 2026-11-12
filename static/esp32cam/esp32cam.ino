@@ -106,9 +106,9 @@ bool initCamera() {
     }
 
     const char *cameraModel = "desconocido";
-    if (sensor->pid == OV2640_PID) {
+    if (sensor->id.PID == OV2640_PID) {
         cameraModel = "OV2640";
-    } else if (sensor->pid == OV3660_PID) {
+    } else if (sensor->id.PID == OV3660_PID) {
         cameraModel = "OV3660";
     }
 

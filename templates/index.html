@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f172a">
+  <title>Parking Local | ESP32-CAM</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07111f;
+      --panel: #101d30;
+      --panel-soft: #15253b;
+      --border: #25364d;
+      --text: #edf4ff;
+      --muted: #91a4bc;
+      --primary: #38bdf8;
+      --success: #34d399;
+      --warning: #fbbf24;
+      --danger: #fb7185;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at top right, #123252 0, var(--bg) 42%);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button, input { font: inherit; }
+    .container { width: min(1380px, 94%); margin: 0 auto; }
+    header { padding: 26px 0 18px; }
+    .header-content { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+    .brand { display: flex; align-items: center; gap: 14px; }
+    .brand-icon {
+      display: grid; place-items: center; width: 50px; height: 50px;
+      border: 1px solid #0ea5e966; border-radius: 14px;
+      background: linear-gradient(145deg, #0ea5e933, #2563eb22); color: var(--primary);
+    }
+    h1 { margin: 0; font-size: clamp(1.25rem, 3vw, 1.7rem); letter-spacing: -.03em; }
+    .subtitle { margin: 4px 0 0; color: var(--muted); font-size: .9rem; }
+    .status-pill {
+      display: inline-flex; align-items: center; gap: 8px; padding: 9px 13px;
+      border: 1px solid var(--border); border-radius: 999px; background: #101d30cc;
+      color: var(--muted); font-size: .84rem; white-space: nowrap;
+    }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warning); }
+    .status-pill.online .status-dot { background: var(--success); box-shadow: 0 0 12px #34d39999; }
+    .status-pill.offline .status-dot { background: var(--danger); }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 10px 0 20px; }
+    .card, .panel {
+      background: linear-gradient(145deg, #14243ad9, #0d1929ed);
+      border: 1px solid var(--border); border-radius: 18px;
+      box-shadow: 0 14px 38px #00000024;
+    }
+    .card { padding: 20px; display: flex; align-items: center; gap: 16px; }
+    .card-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: #38bdf814; color: var(--primary); }
+    .card-icon.green { color: var(--success); background: #34d39914; }
+    .card-icon.amber { color: var(--warning); background: #fbbf2414; }
+    .card-label { color: var(--muted); font-size: .8rem; margin-bottom: 4px; }
+    .card-value { font-size: 1.55rem; font-weight: 750; letter-spacing: -.035em; }
+    .dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(260px, .7fr); gap: 20px; }
+    .panel { overflow: hidden; }
+    .panel-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 20px; border-bottom: 1px solid var(--border); }
+    .panel-title { display: flex; align-items: center; gap: 10px; margin: 0; font-size: .98rem; }
+    .panel-title svg { color: var(--primary); }
+    .camera-container { position: relative; aspect-ratio: 4 / 3; background: #050b13; display: grid; place-items: center; }
+    #cameraFeed { width: 100%; height: 100%; object-fit: contain; display: none; }
+    #cameraPlaceholder { padding: 34px; text-align: center; color: var(--muted); }
+    #cameraPlaceholder svg { margin-bottom: 12px; color: #52708f; }
+    #cameraPlaceholder strong { display: block; color: var(--text); margin-bottom: 6px; }
+    .camera-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 13px 18px; color: var(--muted); font-size: .78rem; }
+    .button {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      border: 1px solid #0ea5e955; border-radius: 10px; padding: 9px 13px;
+      background: #0ea5e91c; color: #bae6fd; cursor: pointer;
+    }
+    .button:hover { background: #0ea5e930; }
+    .button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .system-body { padding: 20px; }
+    .metric { display: flex; justify-content: space-between; gap: 18px; padding: 13px 0; border-bottom: 1px solid #25364d88; font-size: .86rem; }
+    .metric:last-child { border-bottom: 0; }
+    .metric span { color: var(--muted); }
+    .metric strong { text-align: right; font-weight: 600; }
+    .table-panel { margin: 20px 0 28px; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 760px; }
+    th { padding: 13px 20px; background: #0b1625; color: var(--muted); font-size: .72rem; text-align: left; text-transform: uppercase; letter-spacing: .08em; }
+    td { padding: 16px 20px; border-top: 1px solid #25364d88; font-size: .88rem; }
+    .plate { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 1rem; font-weight: 750; letter-spacing: .09em; }
+    .badge { display: inline-flex; padding: 5px 9px; border-radius: 999px; font-size: .73rem; font-weight: 650; }
+    .badge.free { color: #a7f3d0; background: #10b9811c; }
+    .badge.due { color: #fde68a; background: #f59e0b20; }
+    .money { color: #bae6fd; font-weight: 700; }
+    .empty { padding: 42px 20px; text-align: center; color: var(--muted); }
+    .empty svg { color: #52708f; margin-bottom: 10px; }
+    .empty strong { display: block; color: var(--text); margin-bottom: 5px; }
+    footer { padding: 0 0 26px; text-align: center; color: #67809d; font-size: .76rem; }
+    .icon { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    @media (max-width: 900px) {
+      .dashboard-grid { grid-template-columns: 1fr; }
+      .stats { grid-template-columns: 1fr; gap: 10px; }
+      .card { padding: 15px 18px; }
+    }
+    @media (max-width: 560px) {
+      .header-content { align-items: flex-start; }
+      .status-pill { padding: 8px 10px; font-size: .74rem; }
+      .brand-icon { width: 42px; height: 42px; }
+      .subtitle { font-size: .76rem; }
+      .camera-footer { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header class="container">
+    <div class="header-content">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg class="icon" width="28" height="28" viewBox="0 0 24 24"><path d="M6 17h12M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11M5 11h14a1 1 0 0 1 1 1v5H4v-5a1 1 0 0 1 1-1Z"/><path d="M6 17v2m12-2v2M7.5 14h.01m8.99 0h.01"/></svg>
+        </div>
+        <div>
+          <h1>Parking Local</h1>
+          <p class="subtitle">ESP32-CAM · Reconocimiento de placas · Zona {{ monitor_area }}</p>
+        </div>
+      </div>
+      <div id="systemStatus" class="status-pill"><span class="status-dot"></span><span id="systemStatusText">Conectando…</span></div>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="stats" aria-label="Resumen del estacionamiento">
+      <article class="card">
+        <div class="card-icon"><svg class="icon" viewBox="0 0 24 24"><path d="M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11M5 11h14a1 1 0 0 1 1 1v5H4v-5a1 1 0 0 1 1-1Z"/><path d="M6 17v2m12-2v2"/></svg></div>
+        <div><div class="card-label">Vehículos estacionados</div><div id="totalParked" class="card-value">—</div></div>
+      </article>
+      <article class="card">
+        <div class="card-icon amber"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+        <div><div class="card-label">Con importe pendiente</div><div id="needsPayment" class="card-value">—</div></div>
+      </article>
+      <article class="card">
+        <div class="card-icon green"><svg class="icon" viewBox="0 0 24 24"><path d="M12 3v18m4-14.5c0-1.4-1.8-2.5-4-2.5S8 5.1 8 6.5 9.8 9 12 9s4 1.1 4 2.5S14.2 14 12 14s-4 1.1-4 2.5S9.8 19 12 19s4-1.1 4-2.5"/></svg></div>
+        <div><div class="card-label">Importe acumulado</div><div id="totalCost" class="card-value">—</div></div>
+      </article>
+    </section>
+
+    <section class="dashboard-grid">
+      <article class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title"><svg class="icon" viewBox="0 0 24 24"><path d="M14.5 6h-9A2.5 2.5 0 0 0 3 8.5v7A2.5 2.5 0 0 0 5.5 18h9a2.5 2.5 0 0 0 2.5-2.5v-7A2.5 2.5 0 0 0 14.5 6Z"/><path d="m17 10 4-2v8l-4-2"/></svg>Cámara en vivo</h2>
+          <span id="cameraBadge" class="status-pill"><span class="status-dot"></span>Esperando frames</span>
+        </div>
+        <div class="camera-container">
+          <img id="cameraFeed" alt="Imagen en vivo de la ESP32-CAM">
+          <div id="cameraPlaceholder">
+            <svg class="icon" width="44" height="44" viewBox="0 0 24 24"><path d="M14.5 6h-9A2.5 2.5 0 0 0 3 8.5v7A2.5 2.5 0 0 0 5.5 18h9a2.5 2.5 0 0 0 2.5-2.5v-7A2.5 2.5 0 0 0 14.5 6Z"/><path d="m17 10 4-2v8l-4-2"/></svg>
+            <strong>Esperando señal de la cámara</strong>
+            Verifica que la ESP32-CAM esté transmitiendo.
+          </div>
+        </div>
+        <div class="camera-footer">
+          <span>Actualización automática cada 2 segundos</span>
+          <button id="refreshButton" class="button" type="button"><svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>Actualizar ahora</button>
+        </div>
+      </article>
+
+      <aside class="panel">
+        <div class="panel-header"><h2 class="panel-title"><svg class="icon" viewBox="0 0 24 24"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"/><circle cx="12" cy="12" r="3"/></svg>Estado del sistema</h2></div>
+        <div class="system-body">
+          <div class="metric"><span>Servidor</span><strong id="serverState">—</strong></div>
+          <div class="metric"><span>Reconocimiento</span><strong id="recognitionBackend">—</strong></div>
+          <div class="metric"><span>Último frame</span><strong id="lastFrame">—</strong></div>
+          <div class="metric"><span>Zona monitorizada</span><strong>{{ monitor_area }}</strong></div>
+          <div class="metric"><span>Moneda</span><strong>Peso mexicano (MXN)</strong></div>
+          <div class="metric"><span>Última sincronización</span><strong id="lastSync">—</strong></div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel table-panel">
+      <div class="panel-header"><h2 class="panel-title"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h10M7 13h6"/></svg>Vehículos registrados</h2><span class="subtitle">Tiempo e importe en curso</span></div>
+      <div id="emptyState" class="empty"><svg class="icon" width="38" height="38" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h10M7 13h6"/></svg><strong>Sin vehículos registrados</strong>Las placas reconocidas por la cámara aparecerán aquí.</div>
+      <div id="tableWrap" class="table-wrap" hidden>
+        <table>
+          <thead><tr><th>Placa</th><th>Zona</th><th>Tiempo</th><th>Confianza OCR</th><th>Importe</th><th>Estado</th></tr></thead>
+          <tbody id="platesBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <footer class="container">Panel local · Los cobros se calculan en pesos mexicanos (MXN)</footer>
+
+  <script>
+    const money = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" });
+    const feed = document.getElementById("cameraFeed");
+    const placeholder = document.getElementById("cameraPlaceholder");
+    let feedBusy = false;
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
+    }
+
+    function formatElapsed(minutes) {
+      const total = Math.max(0, Math.round(minutes));
+      if (total < 60) return `${total} min`;
+      const hours = Math.floor(total / 60);
+      return `${hours} h ${total % 60} min`;
+    }
+
+    function updateFeed() {
+      if (feedBusy) return;
+      feedBusy = true;
+      feed.onload = () => {
+        feedBusy = false;
+        feed.style.display = "block";
+        placeholder.style.display = "none";
+      };
+      feed.onerror = () => {
+        feedBusy = false;
+        feed.style.display = "none";
+        placeholder.style.display = "block";
+      };
+      feed.src = `/live?t=${Date.now()}`;
+    }
+
+    function updatePlates(plates) {
+      document.getElementById("emptyState").hidden = plates.length > 0;
+      document.getElementById("tableWrap").hidden = plates.length === 0;
+      document.getElementById("platesBody").innerHTML = plates.map(car => {
+        const due = car.cost_mxn > 0;
+        return `<tr>
+          <td class="plate">${escapeHtml(car.plate)}</td>
+          <td>${escapeHtml(car.zone)}</td>
+          <td>${formatElapsed(car.elapsed_minutes)}</td>
+          <td>${Math.round(car.confidence * 100)}%</td>
+          <td class="money">${money.format(car.cost_mxn)}</td>
+          <td><span class="badge ${due ? "due" : "free"}">${due ? "Por cobrar" : "Periodo gratuito"}</span></td>
+        </tr>`;
+      }).join("");
+    }
+
+    async function refreshDashboard() {
+      try {
+        const [healthResponse, statsResponse, platesResponse] = await Promise.all([
+          fetch("/health", { cache: "no-store" }),
+          fetch("/api/stats", { cache: "no-store" }),
+          fetch("/api/plates", { cache: "no-store" })
+        ]);
+        if (!healthResponse.ok || !statsResponse.ok || !platesResponse.ok) throw new Error("API no disponible");
+        const [health, stats, plates] = await Promise.all([
+          healthResponse.json(), statsResponse.json(), platesResponse.json()
+        ]);
+
+        document.getElementById("totalParked").textContent = stats.total_parked;
+        document.getElementById("needsPayment").textContent = stats.needs_payment;
+        document.getElementById("totalCost").textContent = money.format(stats.total_cost_mxn);
+        document.getElementById("serverState").textContent = "En línea";
+        document.getElementById("recognitionBackend").textContent = health.recognition_backend.toUpperCase();
+        document.getElementById("lastFrame").textContent = health.last_frame_age_seconds === null ? "Sin señal" : `Hace ${Math.round(health.last_frame_age_seconds)} s`;
+        document.getElementById("lastSync").textContent = new Date().toLocaleTimeString("es-MX");
+        document.getElementById("systemStatus").className = "status-pill online";
+        document.getElementById("systemStatusText").textContent = "Sistema en línea";
+
+        const hasRecentFrame = health.last_frame_age_seconds !== null && health.last_frame_age_seconds < 15;
+        document.getElementById("cameraBadge").className = `status-pill ${hasRecentFrame ? "online" : "offline"}`;
+        document.getElementById("cameraBadge").innerHTML = `<span class="status-dot"></span>${hasRecentFrame ? "Cámara activa" : "Sin señal"}`;
+        updatePlates(plates);
+      } catch (error) {
+        document.getElementById("systemStatus").className = "status-pill offline";
+        document.getElementById("systemStatusText").textContent = "Servidor sin conexión";
+        document.getElementById("serverState").textContent = "Sin conexión";
+      }
+    }
+
+    document.getElementById("refreshButton").addEventListener("click", () => { refreshDashboard(); updateFeed(); });
+    refreshDashboard();
+    updateFeed();
+    setInterval(refreshDashboard, 2000);
+    setInterval(updateFeed, 2000);
+  </script>
+</body>
+</html>
